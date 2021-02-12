@@ -3,22 +3,11 @@ global _start
 section .text
 
 _start:
-mov rax, 1
-mov rdi, 1
-mov rsi, xgrJHpAmjvcBktd
-mov rdx, 16
-syscall
-mov rax, 1
-mov rdi, 1
-mov rsi, guAmqlihDwkwdBp
-mov rdx, 2
-syscall
-mov rax, 1
-mov rdi, 1
+push qword [rel x]
+mov eax, [x]
 mov rax, 60
-mov rdi, 0
+mov rdi, [x]
 syscall
 
 section .rodata
-xgrJHpAmjvcBktd: db "Initializing...", 10
-guAmqlihDwkwdBp: db "h", 10
+x: db 5

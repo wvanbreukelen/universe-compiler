@@ -1,9 +1,5 @@
 main() -> int = {
-    print("Initializing...\n");
-
     var x: int = 5;
 
-    print("h\n");
-    print(x);
-    return 0;
+    return x;
 }
