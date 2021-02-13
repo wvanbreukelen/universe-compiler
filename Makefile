@@ -12,6 +12,7 @@ CFLAGS ?= $(STD) -pedantic -O3 -g -Werror -Wextra -Wformat=2 -Wshadow \
 TESTS = $(wildcard tests/*.c)
 EXAMPLES = $(wildcard examples/*.c)
 CODEGEN = $(wildcard codegen/*.c)
+CODEGEN_UTIL = $(wildcard codegen/util/*.c)
 EXAMPLESEXE = $(EXAMPLES:.c=)
 
 .PHONY: all check clean libs $(DIST)/$(PROJ).pc
@@ -35,7 +36,7 @@ all: $(EXAMPLESEXE) check
 
 
 compiler:
-	$(CC) $(CFLAGS) $(CODEGEN) main.c -lm -L$(DIST) -l$(PROJ) -static -o $(DIST)/compiler
+	$(CC) $(CFLAGS) $(CODEGEN) $(CODEGEN_UTIL) main.c -lm -L$(DIST) -l$(PROJ) -static -o $(DIST)/compiler
 
 
 
