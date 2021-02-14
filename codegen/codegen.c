@@ -4,7 +4,7 @@
 #include <ctype.h>
 #include "snippets.h"
 
-map_str_t m;
+map_void_t m;
 
 static bool increase_reg(struct tools* t) {
     if (strlen(t->avail_reg) <= 1) {
@@ -270,10 +270,10 @@ struct value visit_exp(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
 
         unfold_math_exp(node, trav, t);
 
-        return (struct value) {value_register, strdup("rax") };
+        return (struct value) {value_register, strdup("rax"), false };
     }
     
-    return (struct value) { value_unknown, NULL };
+    return (struct value) { value_unknown, NULL, false };
 }
 
 
@@ -284,7 +284,7 @@ struct value visit_term(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) 
         return visit_factor(node, trav, t);
     }
 
-    return (struct value) { value_unknown, NULL };
+    return (struct value) { value_unknown, NULL, false };
 }
 struct value visit_factor(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
     if (startsWith("lexp|term|factor|string", node->tag)) {
@@ -303,7 +303,7 @@ struct value visit_factor(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t
         return visit_ident(node, trav, t);
     }
 
-    return (struct value) { value_unknown, NULL };
+    return (struct value) { value_unknown, NULL, false };
 }
 
 struct value visit_string(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
@@ -317,24 +317,24 @@ struct value visit_string(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t
     char* dup = strdup(&node->contents[1]);
     dup[strlen(dup)-1] = 0;
 
-    return (struct value) { value_string, dup };
+    return (struct value) { value_string, dup, true };
 }
 
 struct value visit_number(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
-    return (struct value) { value_int64, strdup(node->contents) };
+    return (struct value) { value_int64, strdup(node->contents), false };
 }
 
 struct value visit_boolean(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
     char* val = (strcmp(node->contents, "true") == 0) ? strdup("1") : strdup("0");
 
-    return (struct value) { value_boolean, val };
+    return (struct value) { value_boolean, val, false };
 }
 
 struct value visit_ident(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
-    char **val = map_get(&m, node->contents);
+    struct value **val = (struct value**) map_get(&m, node->contents);
 
 
-    if (val) {
+    if (val && (*val)->value) {
         //printf("Variable found! Pointer offset: %s\n", *val);
     } else {
         fprintf(stderr, "Error: Variable `%s` undefined!\n", node->contents);
@@ -343,7 +343,14 @@ struct value visit_ident(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t)
 
     //return strdup(node->contents);
 
-    return (struct value) { value_register, strdup(*val) };
+    
+
+    if ((*val)->type == value_string) {
+        return (struct value) { value_register_data, strdup((*val)->value), (*val)->constant  };
+    } else {
+        return (struct value) { value_register, strdup((*val)->value), (*val)->constant };
+    }
+    
 }
 
 
@@ -358,7 +365,8 @@ int visit_funcall(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
         // Unwrap arguments.
         for (int i = 2; i < node->children_num - 1; i++) {
             struct value arg = visit_exp(node->children[i], trav, t);
-            printf("arg: %s\n\n\n", arg.value);
+            printf("arg: %s, type: %s\n\n\n", arg.value, type_to_string(arg.type));
+
 
             if (arg.type == value_string && arg.value) {
                 t->buf = strcat(t->buf, "mov rax, 1\nmov rdi, 1\n");
@@ -371,23 +379,35 @@ int visit_funcall(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
                 sprintf(value, template, random_string, data_length);
 
                 t->buf = strcat(t->buf, value);
-                free(arg.value);
                 free(random_string);
                 free(value);
-            } else if (arg.type == value_register) {
+            } else if (arg.type == value_register_data && var_exists(node->children[i]->contents, t)) {
+                t->buf = strcat(t->buf, "mov rax, 1\nmov rdi, 1\n");
+
+                const char* template = "mov rsi, %s\nmov rdx, %d\nsyscall\n";
+                char* value = calloc(strlen(template) + 128, sizeof(char));
+                // TODO find length.
+                sprintf(value, template, node->children[i]->contents, 100);
+
+                t->buf = strcat(t->buf, value);
+                
+                free(value);
+            
+            } else if (arg.type == value_register ) {
                 const char* template = "mov rdi, %s\ncall _decprint\n";
                 //t->buf = strcat(t->buf, "mov rax, 1\nmov rdi, 1\n");
                 char* value = calloc(strlen(template) + 128, sizeof(char));
                 sprintf(value, template, arg.value);
                 t->buf = strcat(t->buf, value);
                 free(value);
-                free(arg.value);
 
                 preload_dec_print(t);
             } else {
                 // fprintf(stderr, "Error: failed to unwrap argument of type `%s`!\n", type_to_string(arg.type));
                 // exit(1);
             }
+
+            free(arg.value);
         }
 
         pop_active_regs(t);
@@ -585,7 +605,13 @@ char* add_load(char* name, const struct value val, mpc_ast_trav_t* trav, struct 
         t->buf = strcat(t->buf, calloc_val);
 
 
-        map_set(&m, name, strdup(t->avail_reg));
+        struct value* map_val = malloc(sizeof(struct value));
+        map_val->type = value_int64;
+        map_val->value = strdup(t->avail_reg);
+        map_val->constant = true;
+        map_set(&m, name, map_val);
+        struct value **val2 = (struct value**) map_get(&m, name);
+
         //t->stack_offset += sizeof(int);
         increase_reg(t);
 
@@ -597,7 +623,11 @@ char* add_load(char* name, const struct value val, mpc_ast_trav_t* trav, struct 
         sprintf(calloc_val, template, t->avail_reg, val.value[1], name);
         t->buf = strcat(t->buf, calloc_val);
 
-        map_set(&m, name, strdup(t->avail_reg));
+        struct value* map_val = malloc(sizeof(struct value));
+        map_val->type = value_register;
+        map_val->value = strdup(t->avail_reg);
+        map_val->constant = true;
+        map_set(&m, name, map_val);
         //t->stack_offset += sizeof(int);
         //t->avail_reg++;
         increase_reg(t);
@@ -609,7 +639,12 @@ char* add_load(char* name, const struct value val, mpc_ast_trav_t* trav, struct 
         sprintf(calloc_val, template, t->avail_reg, val.value[1], name);
         t->buf = strcat(t->buf, calloc_val);
 
-        map_set(&m, name, strdup(t->avail_reg));
+
+        struct value* map_val = malloc(sizeof(struct value));
+        map_val->type = value_register;
+        map_val->value = strdup(t->avail_reg);
+        map_val->constant = true;
+        map_set(&m, name, map_val);
         //t->stack_offset += sizeof(int);
         //t->avail_reg++;
         increase_reg(t);
@@ -622,8 +657,11 @@ char* add_load(char* name, const struct value val, mpc_ast_trav_t* trav, struct 
         sprintf(calloc_val, template, t->avail_reg, name, name);
         t->buf = strcat(t->buf, calloc_val);
 
-
-        map_set(&m, name, strdup(t->avail_reg));
+        struct value* map_val = malloc(sizeof(struct value));
+        map_val->type = value_string;
+        map_val->value = strdup(t->avail_reg);
+        map_val->constant = true;
+        map_set(&m, name, map_val);
         //t->stack_offset += sizeof(int);
         increase_reg(t);
     } else {
@@ -636,14 +674,19 @@ char* add_load(char* name, const struct value val, mpc_ast_trav_t* trav, struct 
 
         const char* template = "mov %s, %s ; load %s\n";
         char* calloc_val = calloc(strlen(template) + 24, sizeof(char));
-        char** reg = map_get(&m, val.value);
+        struct value** reg = (struct value**) map_get(&m, val.value);
 
-        sprintf(calloc_val, template, t->avail_reg, *reg, val.value);
+        sprintf(calloc_val, template, t->avail_reg, (*reg)->value, val.value);
         t->buf = strcat(t->buf, calloc_val);
        
 
 
-        map_set(&m, name, strdup(t->avail_reg));
+        struct value* map_val = malloc(sizeof(struct value));
+        map_val->type = value_unknown;
+        map_val->value = strdup(t->avail_reg);
+        map_val->constant = true;
+
+        map_set(&m, name, map_val);
         //t->stack_offset += sizeof(int);
         //t->avail_reg++;
         
@@ -658,12 +701,18 @@ char* add_store(char* name, const struct value val, mpc_ast_trav_t* trav, struct
 
     const char* template = "mov [%s], %s ; store %s\n";
     char* val_calloc = calloc(strlen(template) + 24, sizeof(char));
-    char** reg = map_get(&m, val.value);
+    struct value **reg = (struct value**) map_get(&m, val.value);
 
-    sprintf(val_calloc, template, name, *reg, name);
+    sprintf(val_calloc, template, name, (*reg)->value, name);
     t->buf = strcat(t->buf, val_calloc);
 
-    map_set(&m, name, strdup(t->avail_reg));
+
+    struct value* map_val = malloc(sizeof(struct value));
+    map_val->type = val.type;
+    map_val->value = strdup(t->avail_reg);
+    map_val->constant = true;
+
+    map_set(&m, name, map_val);
         //free(val);
     //}
 }
@@ -716,15 +765,15 @@ char* add_use(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t, const char
     } else {
         const char* template = "mov %s, %s ; load %s\n";
         char* value = calloc(strlen(template) + 128, sizeof(char));
-        char** reg_use = map_get(&m, node->contents);
+        struct value** map_val = (struct value** )map_get(&m, node->contents);
 
-        if (!reg_use) {
+        if (map_val && !(*map_val)->value) {
             fprintf(stderr, "NO INSTANCE for %s\n", node->contents);
             exit(1);
             return 0;
         }
 
-        sprintf(value, template, reg, *reg_use, node->contents);
+        sprintf(value, template, reg, (*map_val)->value, node->contents);
 
         t->buf = strcat(t->buf, value);
         free(value);
@@ -785,15 +834,15 @@ char* add_use_raw(char* content, mpc_ast_trav_t* trav, struct tools* t, const ch
     } else {
         const char* template = "mov %s, %s\n";
         char* value = calloc(strlen(template) + 128, sizeof(char));
-        char** reg_use = map_get(&m, content);
+        struct value** map_val = (struct value**) map_get(&m, content);
 
-        if (!reg_use) {
+        if (map_val && !(*map_val)->value) {
             fprintf(stderr, "NO INSTANCE for %s\n", content);
             exit(1);
             return 0;
         }
 
-        sprintf(value, template, reg, *reg_use);
+        sprintf(value, template, reg, (*map_val)->value);
 
         t->buf = strcat(t->buf, value);
         free(value);
@@ -814,7 +863,7 @@ void push_active_regs(struct tools *t) {
     char* value = calloc(strlen(template) + 128, sizeof(char));
 
     while ((key = map_next(&m, &iter))) {
-        sprintf(value, template, *map_get(&m, key), key);
+        sprintf(value, template, (*((struct value**) map_get(&m, key)))->value, key);
         t->buf = strcat(t->buf, value);
     }
 
@@ -836,10 +885,13 @@ void pop_active_regs(struct tools *t) {
     }
 
     i = 0;
+    struct value** entry;
 
     while (i < 128) {
         if (keys[i]) {
-            sprintf(value, template, *map_get(&m, keys[i]), keys[i]);
+            entry = (struct value**) map_get(&m, keys[i]);
+
+            sprintf(value, template, (*entry)->value, keys[i]);
             t->buf = strcat(t->buf, value);
         }
         i++;

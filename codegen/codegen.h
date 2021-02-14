@@ -25,6 +25,7 @@ enum t_value {
 struct value {
     enum t_value type;
     char *value;
+    bool constant;
 };
 
 enum t_section {
@@ -73,6 +74,8 @@ static const char* type_to_string(enum t_value type) {
     {
     case value_register:
         return "register";
+    case value_register_data:
+        return "register_data";
     case value_boolean:
         return "boolean";
     case value_int64:
