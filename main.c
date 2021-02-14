@@ -9,15 +9,17 @@ int main(int argc, char* argv[]) {
 
   if (argc > 1) {
     if (mpc_parse_contents(argv[1], lexer, &r)) {
-      mpc_ast_print(r.output);
-      visitor_start(r.output);
+      printf("Compiling `%s`...\n", argv[1]);
 
-
+      // mpc_ast_print(r.output);
+      visitor_start(r.output, argv[1]);
       mpc_ast_delete(r.output);
     } else {
       mpc_err_print(r.error);
       mpc_err_delete(r.error);
     }
+
+    printf("Done :)\n");
   }
 
 

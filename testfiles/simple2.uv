@@ -1,0 +1,10 @@
+main() -> int = {
+    var x: int = 10;
+    var y: int = 5;
+    var z: int = x + y - y;
+    var p: int = z - 1;
+
+    print("Hello World!\n\n", "hefff\n");
+
+    return p;
+}

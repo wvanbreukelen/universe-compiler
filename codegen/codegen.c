@@ -14,7 +14,7 @@ static bool increase_reg(struct tools* t) {
     if (t->avail_reg[0] == 'r' && isalpha(t->avail_reg[1]) && t->avail_reg[2] == 'x') {
         if (t->avail_reg[1] + 1 < 'd') {
             t->avail_reg[1] += 1;
-            printf("%s\n\n\n", t->avail_reg);
+            //printf("%s\n\n\n", t->avail_reg);
         } else {
             free(t->avail_reg);
             t->avail_reg = strdup("r8");
@@ -27,7 +27,7 @@ static bool increase_reg(struct tools* t) {
             exit(1);
         }
     } else {
-        printf("%s\n\n", t->avail_reg);
+        //printf("%s\n\n", t->avail_reg);
         perror("Unknown error!\n");
         exit(1);
     }
@@ -73,7 +73,7 @@ bool startsWith(const char *pre, const char *str)
     return lenstr < lenpre ? false : memcmp(pre, str, lenpre) == 0;
 }
 
-void visitor_start(mpc_ast_t* tree) {
+void visitor_start(mpc_ast_t* tree, const char* filename) {
     mpc_ast_trav_t* trav = mpc_ast_traverse_start(tree, mpc_ast_trav_order_pre);
     mpc_ast_t * ast_next = mpc_ast_traverse_next(&trav);
 
@@ -85,11 +85,16 @@ void visitor_start(mpc_ast_t* tree) {
     t->data_end = strcat(t->data_end, "\nsection .data\n");
     t->stack_offset = 0;
     t->avail_reg = strdup("r8");
+    const char* template = "output.asm";
+    char* _filename = malloc(strlen(filename) + 8);
+    strcpy(_filename, filename);
+    _filename = strcat(_filename, ".asm");
 
-    t->whandle = fopen("output.asm", "w+");
+    t->whandle = fopen(_filename, "w+");
+    free(_filename);
 
     if (!t->whandle) {
-        printf("Unable to open file handle!");
+        perror("Unable to open file handle!");
         exit(1);
     }
 
@@ -166,10 +171,10 @@ int visit_main(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
     return 0;
 }
 int visit_funcdef(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
-    printf("visit funcdef\n");
+    //printf("visit funcdef\n");
 
     char* return_type = strdup(node->children[3]->contents);
-    printf("Return type: %s\n", return_type);
+    //printf("Return type: %s\n", return_type);
     free(return_type);
 
     if (strcmp(node->children[5]->tag, "body|>") == 0) {
@@ -180,7 +185,7 @@ int visit_funcdef(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
 }
 
 int visit_body(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
-    printf("visit body\n");
+    //printf("visit body\n");
 
     for (int i = 1; i < node->children_num - 1; i++) {
         visit(node->children[i], trav, t);
@@ -191,15 +196,50 @@ int visit_body(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
 }
 
 int visit_statement(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
-    printf("visit statement\n");
+    //printf("visit statement\n");
     
     for (int i = 0; i < node->children_num; i++) {
-        //printf("%s\n", node->children[i]->tag);
         visit(node->children[i], trav, t);
     }
 
     return 0;
 }
+
+
+static void _unfold_math_exp_impl(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t, int base_index, bool fold_mode) {
+    char *lhs = NULL;
+
+    if (!fold_mode) {
+        lhs = add_use(node->children[base_index], trav, t, "rax");
+    }
+
+    printf("%s\n", node->children[base_index]->contents);
+    
+    char *rhs = add_use(node->children[base_index + 2], trav, t, "rbx");
+    char *value = calloc(1024, sizeof(char));
+
+    if (strcmp("+", node->children[base_index + 1]->contents) == 0) {
+        const char* template1 = "add %s, %s\n";
+        sprintf(value, template1, "rax", "rbx");
+    } else if (strcmp("-", node->children[base_index + 1]->contents) == 0) {
+        const char* template2 = "sub %s, %s\n";
+        sprintf(value, template2, "rax", "rbx"); 
+    }
+
+    //char *res = add_load(node->children[i - 1]->contents, "rax", trav, t);
+
+    t->buf = strcat(t->buf, value);
+
+    if (base_index + 3 < node->children_num) {
+        base_index += 2;
+       _unfold_math_exp_impl(node, trav, t, base_index, true);
+    }
+}
+
+static void unfold_math_exp(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
+    _unfold_math_exp_impl(node, trav, t, 0, false);
+}
+
 
 char* visit_exp(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
     if (startsWith("lexp|term", node->tag)) {
@@ -208,40 +248,18 @@ char* visit_exp(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
 
     if (strcmp("lexp|>", node->tag) == 0) {
         // Start folding??
-        printf("We should fold here...\n");
+        //printf("We should fold here...\n");
 
-        mpc_ast_t* op_node = node->children[1];
-
-        if (strcmp("char", op_node->tag) == 0) {
-            char *lhs = add_use(node->children[0], trav, t, "rax");
-            char *rhs = add_use(node->children[2], trav, t, "rbx");
-
-            char *value = calloc(1024, sizeof(char));
-
-            if (strcmp("+", op_node->contents) == 0) {
-                const char* template1 = "add %s, %s\n";
-                sprintf(value, template1, "rax", "rbx");
-            } else if (strcmp("-", op_node->contents) == 0) {
-                const char* template2 = "sub %s, %s\n";
-                sprintf(value, template2, "rax", "rbx"); 
-            }
-
-            //char *res = add_load(node->children[i - 1]->contents, "rax", trav, t);
-
-            t->buf = strcat(t->buf, value);
-
-            if (lhs) free(lhs);
-            if (rhs) free(rhs);
-            free(value);
-
-            //free(res);
-        }
+        unfold_math_exp(node, trav, t);
 
         return strdup("rax");
     }
     
     return NULL;
 }
+
+
+
 
 char* visit_term(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
     if (startsWith("lexp|term|factor", node->tag)) {
@@ -283,7 +301,7 @@ char* visit_ident(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
     char **val = map_get(&m, node->contents);
 
     if (val) {
-        printf("Variable found! Pointer offset: %s\n", *val);
+        //printf("Variable found! Pointer offset: %s\n", *val);
     } else {
         fprintf(stderr, "Variable %s undefined!\n", node->contents);
         //exit(1);
@@ -295,17 +313,19 @@ char* visit_ident(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
 
 int visit_funcall(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
     char* func_name = strdup(node->children[0]->contents);
-    printf("Function call -> %s\n", func_name);
+    //printf("Function call -> %s\n", func_name);
 
     // Check if builtin
     if (strcmp(func_name, "print") == 0) {
-        t->buf = strcat(t->buf, "mov rax, 1\nmov rdi, 1\n");
-
+        push_active_regs(t);
+        
         // Unwrap arguments.
         for (int i = 2; i < node->children_num - 1; i++) {
             char* arg = visit_exp(node->children[i], trav, t);
 
             if (arg) {
+                t->buf = strcat(t->buf, "mov rax, 1\nmov rdi, 1\n");
+
                 char* random_string = malloc(16);
                 int data_length = move_data(rand_string(random_string, 16), arg, t, true, section_rodata);
 
@@ -319,9 +339,11 @@ int visit_funcall(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
                 free(value);
             }
         }
+
+        pop_active_regs(t);
     }
 
-    printf("Number of arguments -> %d\n", node->children_num - 3);
+    //printf("Number of arguments -> %d\n", node->children_num - 3);
 
     free(func_name);
 
@@ -329,11 +351,11 @@ int visit_funcall(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
 }
 
 int visit_return(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
-    printf("Return call!\n");
+    //printf("Return call!\n");
 
     if (node->children_num > 1) {
         char* return_value = visit_exp(node->children[1], trav, t);
-        printf("Return value: %s\n", return_value);
+        //printf("Return value: %s\n", return_value);
 
         // char *load = add_use(node->children[1], trav, t, 'a');
 
@@ -363,19 +385,19 @@ int visit_return(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
 }
 
 int visit_assign(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
-    printf("Visit assign!\n");
+    //printf("Visit assign!\n");
 
     if (strcmp(node->children[0]->contents, "var") == 0) {
         // We are dealing with a new variable assignment.
 
         char* var_name = strdup(node->children[1]->contents);
-        printf("Var name: %s\n", var_name);
+        //printf("Var name: %s\n", var_name);
 
         // Parse expression.
         char* expr = visit_exp(node->children[5], trav, t);
 
         if (expr) {
-            printf("Value: %s\n", expr);
+            //printf("Value: %s\n", expr);
             add_load(var_name, expr, trav, t);
 
             free(expr);
@@ -474,10 +496,10 @@ char* add_load(char* name, const char* value, mpc_ast_trav_t* trav, struct tools
     if (is_digit_str(value)) {
         move_data(name, value, t, false, section_data);
 
-        const char* template = "mov %s, [%s]\n";
+        const char* template = "mov %s, [%s] ; load %s\n";
         char* val = calloc(strlen(template) + 24, sizeof(char));
         //int *val_offset = *map_get(&m, value);
-        sprintf(val, template, t->avail_reg, name);
+        sprintf(val, template, t->avail_reg, name, name);
         t->buf = strcat(t->buf, val);
 
 
@@ -487,10 +509,10 @@ char* add_load(char* name, const char* value, mpc_ast_trav_t* trav, struct tools
 
         //free(val);
     } else if (strlen(value) >= 3 && value[0] == 'r' && value[2] == 'x') {
-        const char* template = "mov %s, r%cx\n";
+        const char* template = "mov %s, r%cx ; load %s\n";
         char* val = calloc(strlen(template) + 24, sizeof(char));
 
-        sprintf(val, template, t->avail_reg, value[1]);
+        sprintf(val, template, t->avail_reg, value[1], name);
         t->buf = strcat(t->buf, val);
 
         map_set(&m, name, strdup(t->avail_reg));
@@ -503,11 +525,11 @@ char* add_load(char* name, const char* value, mpc_ast_trav_t* trav, struct tools
 
         // Not a constant, add a move based on init value.
 
-        const char* template = "mov %s, %s\n";
+        const char* template = "mov %s, %s ; load %s\n";
         char* val = calloc(strlen(template) + 24, sizeof(char));
         char** reg = map_get(&m, value);
 
-        sprintf(val, template, t->avail_reg, *reg);
+        sprintf(val, template, t->avail_reg, *reg, value);
         t->buf = strcat(t->buf, val);
        
 
@@ -525,11 +547,11 @@ char* add_load(char* name, const char* value, mpc_ast_trav_t* trav, struct tools
 char* add_store(char* name, const char* value, mpc_ast_trav_t* trav, struct tools* t) {
 
 
-    const char* template = "mov [%s], %s\n";
+    const char* template = "mov [%s], %s ; store %s\n";
     char* val = calloc(strlen(template) + 24, sizeof(char));
     char** reg = map_get(&m, value);
 
-    sprintf(val, template, name, *reg);
+    sprintf(val, template, name, *reg, name);
     t->buf = strcat(t->buf, val);
 
     map_set(&m, name, strdup(t->avail_reg));
@@ -539,6 +561,11 @@ char* add_store(char* name, const char* value, mpc_ast_trav_t* trav, struct tool
 
 
 char* add_use(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t, const char* reg) {
+    if (!node) {
+        perror("null pointer\n");
+        exit(1);
+    }
+
     // FIXME ugly
     //if (is_digit_str(node->contents)) {
         // const char* template = "mov e%cx, [%s]\n";
@@ -560,10 +587,10 @@ char* add_use(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t, const char
         // return output;
     
     if (is_digit_str(node->contents) == 1) {
-        const char* template = "mov %s, %s\n";
+        const char* template = "mov %s, %s ; load int %s\n";
         char* value = calloc(strlen(template) + 128, sizeof(char));
 
-        sprintf(value, template, reg, node->contents);
+        sprintf(value, template, reg, node->contents, node->contents);
 
         t->buf = strcat(t->buf, value);
         free(value);
@@ -578,7 +605,7 @@ char* add_use(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t, const char
 
         // return output;
     } else {
-        const char* template = "mov %s, %s\n";
+        const char* template = "mov %s, %s ; load %s\n";
         char* value = calloc(strlen(template) + 128, sizeof(char));
         char** reg_use = map_get(&m, node->contents);
 
@@ -588,7 +615,7 @@ char* add_use(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t, const char
             return 0;
         }
 
-        sprintf(value, template, reg, *reg_use);
+        sprintf(value, template, reg, *reg_use, node->contents);
 
         t->buf = strcat(t->buf, value);
         free(value);
@@ -664,17 +691,54 @@ char* add_use_raw(char* content, mpc_ast_trav_t* trav, struct tools* t, const ch
 
         // char* output = malloc(4);
         // if (reg == NULL) {
-        //     //sprintf(output, "%s", t->avail_reg);
-        //     //t->avail_reg++;
-        // } else {
-        //     sprintf(output, "%s", reg);
-        // }
-
-        // return output;
+        //     //sprintf    map_iter_t iter = map_iter(&m);
     }
 
     return NULL;
 }
 
+void push_active_regs(struct tools *t) {
+    const char *key;
+    map_iter_t iter = map_iter(&m);
+
+    const char *template = "push %s; %s\n";
+    char* value = calloc(strlen(template) + 128, sizeof(char));
+
+    while ((key = map_next(&m, &iter))) {
+        sprintf(value, template, *map_get(&m, key), key);
+        t->buf = strcat(t->buf, value);
+    }
+
+    free(value);
+}
+
+void pop_active_regs(struct tools *t) {
+    const char *key;
+    map_iter_t iter = map_iter(&m);
+
+    const char *template = "pop %s; %s\n";
+    char* value = calloc(strlen(template) + 128, sizeof(char));
+    const char** keys = calloc(128 * sizeof(const char*), 1);
+    size_t i = 127;
+
+    while ((key = map_next(&m, &iter)) && i > 0) {
+        keys[i] = key;
+        i--;
+    }
+
+    i = 0;
+
+    while (i < 128) {
+        if (keys[i]) {
+            sprintf(value, template, *map_get(&m, keys[i]), keys[i]);
+            t->buf = strcat(t->buf, value);
+        }
+        i++;
+    }
+
+
+    free(keys);
+    free(value);
+}
 
 

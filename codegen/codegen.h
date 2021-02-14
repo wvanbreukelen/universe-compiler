@@ -19,7 +19,7 @@ enum t_section {
 
 int walk_tree(void);
 
-void visitor_start(mpc_ast_t* tree);
+void visitor_start(mpc_ast_t* tree, const char* filename);
 int visit(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 int visit_main(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 int visit_funcdef(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
@@ -45,3 +45,6 @@ char* add_load(char* name, const char* value, mpc_ast_trav_t* trav, struct tools
 char* add_store(char* name, const char* value, mpc_ast_trav_t* trav, struct tools* t);
 char* add_use(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t, const char* reg);
 char* add_use_raw(char* content, mpc_ast_trav_t* trav, struct tools* t, const char* reg);
+
+void push_active_regs(struct tools *t);
+void pop_active_regs(struct tools *t);
