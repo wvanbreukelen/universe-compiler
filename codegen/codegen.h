@@ -15,6 +15,7 @@ struct tools {
 
 enum t_value {
     value_register,
+    value_register_data,
     value_string,
     value_int64,
     value_boolean,

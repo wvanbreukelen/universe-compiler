@@ -2,6 +2,7 @@
 #include "util/str.h"
 #include <stdbool.h>
 #include <ctype.h>
+#include "snippets.h"
 
 map_str_t m;
 
@@ -231,7 +232,6 @@ static void _unfold_math_exp_impl(mpc_ast_t* node, mpc_ast_trav_t* trav, struct 
         lhs = add_use(node->children[base_index], trav, t, "rax");
     }
 
-    printf("%s\n", node->children[base_index]->contents);
     
     char *rhs = add_use(node->children[base_index + 2], trav, t, "rbx");
     char *value = calloc(1024, sizeof(char));
@@ -341,7 +341,6 @@ struct value visit_ident(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t)
         exit(1);
     }
 
-    printf("%s\n", *val);
     //return strdup(node->contents);
 
     return (struct value) { value_register, strdup(*val) };
@@ -359,6 +358,7 @@ int visit_funcall(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
         // Unwrap arguments.
         for (int i = 2; i < node->children_num - 1; i++) {
             struct value arg = visit_exp(node->children[i], trav, t);
+            printf("arg: %s\n\n\n", arg.value);
 
             if (arg.type == value_string && arg.value) {
                 t->buf = strcat(t->buf, "mov rax, 1\nmov rdi, 1\n");
@@ -371,50 +371,22 @@ int visit_funcall(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
                 sprintf(value, template, random_string, data_length);
 
                 t->buf = strcat(t->buf, value);
-                printf("%s\n", arg.value);
                 free(arg.value);
                 free(random_string);
                 free(value);
             } else if (arg.type == value_register) {
+                const char* template = "mov rdi, %s\ncall _decprint\n";
                 //t->buf = strcat(t->buf, "mov rax, 1\nmov rdi, 1\n");
-                t->buf = strcat(t->buf, "mov rdi, r9\ncall _decprint\n");
+                char* value = calloc(strlen(template) + 128, sizeof(char));
+                sprintf(value, template, arg.value);
+                t->buf = strcat(t->buf, value);
+                free(value);
+                free(arg.value);
 
-
-                t->templates = strcat(t->templates, "\
-\n_decprint:\n\
-push    rbp\n\
-mov     rbp, rsp\n\
-sub     rsp, 16\n\
-mov     qword [rbp - 8], rdi\n\
-cmp     qword [rbp - 8], 9\n\
-jle     _decprint_finish\n\
-mov     rax, qword [rbp - 8]\n\
-cqo\n\
-mov     ecx, 10\n\
-idiv    rcx\n\
-mov     qword [rbp - 16], rax\n\
-imul    rax, qword [rbp - 16], 10\n\
-mov     rcx, qword [rbp - 8]\n\
-sub     rcx, rax\n\
-mov     qword [rbp - 8], rcx\n\
-mov     rdi, qword [rbp - 16]\n\
-call    _decprint\n\n\
-_decprint_finish:\n\
-mov     rax, qword [rbp - 8] \n\
-add     rax, 48 \n\
-mov     qword [rbp - 8], rax \n\
-mov rax, 1 \n\
-mov rdi, 1 \n\
-lea rsi, [rbp - 8] \n\
-mov rdx, 1 \n\
-syscall \n\
-add     rsp, 16\n\
-pop     rbp\n\
-ret\
-                ");
+                preload_dec_print(t);
             } else {
-                fprintf(stderr, "Error: failed to unwrap argument of type `%s`!\n", type_to_string(arg.type));
-                exit(1);
+                // fprintf(stderr, "Error: failed to unwrap argument of type `%s`!\n", type_to_string(arg.type));
+                // exit(1);
             }
         }
 
@@ -463,24 +435,27 @@ int visit_return(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
 }
 
 int visit_assign(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
-    //printf("Visit assign!\n");
 
     if (strcmp(node->children[0]->contents, "var") == 0) {
         // We are dealing with a new variable assignment.
 
         char* var_name = strdup(node->children[1]->contents);
-        //printf("Var name: %s\n", var_name);
+        printf("Visit assign!\n");
+
+        
 
         // Parse expression.
         struct value val = visit_exp(node->children[5], trav, t);
+        
 
         if (val.value) {
-            printf("Value: %s\n", val.value);
+            printf("Var name: %s, value %s\n", var_name, val.value);
             add_load(var_name, val, trav, t);
 
             free(val.value);
         }
 
+            
 
         free(var_name);
     }
@@ -514,6 +489,7 @@ int move_data(const char* name, const struct value val, struct tools* t, bool st
 
     const char* template = (val.type == value_string) ? "%s: db %s\n" : "%s: dq %s\n";
     char* value = calloc(strlen(template) + 128, sizeof(char));
+    int length = strlen(val.value) - 1;
 
     if (string_mode) {
         char* temp = malloc(strlen(val.value) + 256);
@@ -543,21 +519,26 @@ int move_data(const char* name, const struct value val, struct tools* t, bool st
                 in_string = false;
                 in_newline = true;
                 it++;
+            } else if (*it == ' ') {
+                if (in_newline) strcat(temp, ", ");
+                temp = (in_string) ? strcat(temp, "\", 32") : strcat(temp, "32");
+                in_string = false;
+                in_newline = true;
             } else {
-                int length = strlen(temp);
+                int _length = strlen(temp);
                 if (!in_string) {
                     if (in_newline) {
-                        temp[length] = ','; ++length;
-                        temp[length] = ' '; ++length;
+                        temp[_length] = ','; ++_length;
+                        temp[_length] = ' '; ++_length;
                         in_newline = false;
                     }
 
-                    temp[length] = '"'; ++length;
+                    temp[_length] = '"'; ++_length;
                 }
                     
                 
-                temp[length] = *it;
-                temp[length + 1] = '\0';
+                temp[_length] = *it;
+                temp[_length + 1] = '\0';
                 in_string = true;
             }
 
@@ -565,13 +546,14 @@ int move_data(const char* name, const struct value val, struct tools* t, bool st
         }
 
         if (in_string) {
-            int length = strlen(temp);
+            int _length = strlen(temp);
                         
-            temp[length] = '"';
-            temp[length + 1] = '\0';
+            temp[_length] = '"';
+            temp[_length + 1] = '\0';
         }
 
         sprintf(value, template, name, temp);
+        //length = strlen(temp) - 1;
         free(temp);
     } else {
         sprintf(value, template, name, val.value);
@@ -589,8 +571,7 @@ int move_data(const char* name, const struct value val, struct tools* t, bool st
     }
     
     free(value);
-    
-    return strlen(val.value) - 1;
+    return length;
 }
 
 char* add_load(char* name, const struct value val, mpc_ast_trav_t* trav, struct tools* t) {
@@ -632,11 +613,26 @@ char* add_load(char* name, const struct value val, mpc_ast_trav_t* trav, struct 
         //t->stack_offset += sizeof(int);
         //t->avail_reg++;
         increase_reg(t);
+    } else if (val.type == value_string) {
+        move_data(name, val, t, true, section_rodata);
+
+        const char* template = "mov %s, [%s] ; load %s\n";
+        char* calloc_val = calloc(strlen(template) + 24, sizeof(char));
+        //int *val_offset = *map_get(&m, value);
+        sprintf(calloc_val, template, t->avail_reg, name, name);
+        t->buf = strcat(t->buf, calloc_val);
+
+
+        map_set(&m, name, strdup(t->avail_reg));
+        //t->stack_offset += sizeof(int);
+        increase_reg(t);
     } else {
         //move_rodata(name, value, t, false);
         //move_data(name, "0", t, false);
 
         // Not a constant, add a move based on init value.
+
+       
 
         const char* template = "mov %s, %s ; load %s\n";
         char* calloc_val = calloc(strlen(template) + 24, sizeof(char));

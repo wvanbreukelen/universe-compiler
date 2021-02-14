@@ -37,7 +37,7 @@ mpc_parser_t* init_lexer(void) {
         " boolean   : (\"true\" | \"false\") ;                              \n"
         " returntype : \"->\" ;                                              \n"
         " string    : /\"(\\\\.|[^\"])*\"/ ;                               \n"
-        " type     : (\"int\" | \"char\" | \"float\" | \"bool\");                                \n"
+        " type     : (\"int\" | \"char\" | \"float\" | \"bool\" | \"str\"); \n"
         "                                                                  \n"
         " factor    : '(' <lexp> ')'                                       \n"
         "           | <number>                                             \n"

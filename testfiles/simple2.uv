@@ -1,10 +1,14 @@
 main() -> int = {
-    var x: int = 2342;
+    var x: int = 1;
     var y: int = x;
+    var z: str = "Hello World\n";
 
-    print("Value:\t");
-    print(x);
+    print("Value x: ", x, " y: ", y);
+    print("\n");
+    print(z);
     print("\n");
     
+    
+
     return y;
 }
