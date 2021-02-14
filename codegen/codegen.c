@@ -100,6 +100,18 @@ void visitor_start(mpc_ast_t* tree, const char* filename) {
 
     map_init(&m);
 
+
+    // for (int i = 0; i < ast_next->children_num; i++) {
+    //     mpc_ast_t *func_candidate = ast_next->children[i];
+
+    //     if (strcmp(func_candidate->tag, "func|>") == 0) {
+    //         printf("%s\n", func_candidate->children[0]->contents);
+    //         if (strcmp(func_candidate->children[0]->contents, "main") == 0) {
+    //             visit_main(ast_next, trav, t);
+    //         }
+    //     }
+    // }
+
     if (strcmp(ast_next->tag, ">") == 0) {
         ast_next = mpc_ast_traverse_next(&trav);
         if (strcmp(ast_next->tag, "regex") == 0) {
@@ -111,16 +123,15 @@ void visitor_start(mpc_ast_t* tree, const char* filename) {
         }
     }
 
-    // while(ast_next != NULL) {
-    //     printf("Tag: %s; Contents: %s\n",
-    //     ast_next->tag,
-    //     ast_next->contents);
-    //     ast_next = mpc_ast_traverse_next(&trav);
-    // }
     
-    fputs(t->buf, t->whandle);
-    fputs(t->rodata_end, t->whandle);
-    fputs(t->data_end, t->whandle);
+    //if (strlen(t->buf) > 0)
+        fputs(t->buf, t->whandle);
+    
+    //if (strlen(t->rodata_end) > 0)
+        fputs(t->rodata_end, t->whandle);
+    
+    //if (strlen(t->data_end) > 0)
+        fputs(t->data_end, t->whandle);
 
     fclose(t->whandle);
     free(t->buf);
@@ -130,7 +141,6 @@ void visitor_start(mpc_ast_t* tree, const char* filename) {
     mpc_ast_traverse_free(&trav);
 
     map_deinit(&m);
-
 }
 
 int visit(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
@@ -152,6 +162,10 @@ int visit(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
 
     if (strcmp(node->tag, "assign|>") == 0) {
         return visit_assign(node, trav, t);
+    }
+
+    if (strcmp(node->tag, "reassign|>") == 0) {
+        return visit_reassign(node, trav, t);
     }
 
     if (startsWith("lexp", node->tag)) {
@@ -277,6 +291,10 @@ char* visit_factor(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
         return visit_number(node, trav, t);
     }
 
+    if (startsWith("lexp|term|factor|boolean", node->tag)) {
+        return visit_boolean(node, trav, t);
+    }
+
     if (startsWith("lexp|term|factor|ident", node->tag)) {
         return visit_ident(node, trav, t);
     }
@@ -297,17 +315,25 @@ char* visit_number(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
     return strdup(node->contents);
 }
 
+char* visit_boolean(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
+    return (strcmp(node->contents, "true") == 0) ? strdup("1") : strdup("0");
+}
+
 char* visit_ident(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
     char **val = map_get(&m, node->contents);
+
 
     if (val) {
         //printf("Variable found! Pointer offset: %s\n", *val);
     } else {
-        fprintf(stderr, "Variable %s undefined!\n", node->contents);
-        //exit(1);
+        fprintf(stderr, "Error: Variable `%s` undefined!\n", node->contents);
+        exit(1);
     }
 
-    return strdup(node->contents);
+    printf("%s\n", *val);
+    //return strdup(node->contents);
+
+    return strdup(*val);
 }
 
 
@@ -334,9 +360,12 @@ int visit_funcall(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
                 sprintf(value, template, random_string, data_length);
 
                 t->buf = strcat(t->buf, value);
-                free(--arg);
+                free(arg);
                 free(random_string);
                 free(value);
+            } else {
+                perror("Error: failed to unwrap argument!\n");
+                exit(1);
             }
         }
 
@@ -355,7 +384,7 @@ int visit_return(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
 
     if (node->children_num > 1) {
         char* return_value = visit_exp(node->children[1], trav, t);
-        //printf("Return value: %s\n", return_value);
+        printf("Return value: %s\n", return_value);
 
         // char *load = add_use(node->children[1], trav, t, 'a');
 
@@ -397,7 +426,7 @@ int visit_assign(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
         char* expr = visit_exp(node->children[5], trav, t);
 
         if (expr) {
-            //printf("Value: %s\n", expr);
+            printf("Value: %s\n", expr);
             add_load(var_name, expr, trav, t);
 
             free(expr);
@@ -409,6 +438,28 @@ int visit_assign(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
 
     return 0;
 }
+
+
+int visit_reassign(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
+    // Check if variable is within active set.
+    if (!var_exists(node->children[0]->contents, t)) {
+        fprintf(stderr, "Error: variable `%s` does not exists!\n", node->children[0]->contents);
+        exit(1);
+    }
+
+    // Parse expression.
+    char* expr = visit_exp(node->children[2], trav, t);
+
+    if (expr) {
+        //printf("Value: %s\n", expr);
+        add_load(node->children[0]->contents, expr, trav, t);
+
+        free(expr);
+    }
+
+    return 0;
+}
+
 
 int move_data(const char* name, const char *str, struct tools* t, bool string_mode, enum t_section section) {
     const char* template = "%s: db %s\n";
@@ -510,6 +561,18 @@ char* add_load(char* name, const char* value, mpc_ast_trav_t* trav, struct tools
         //free(val);
     } else if (strlen(value) >= 3 && value[0] == 'r' && value[2] == 'x') {
         const char* template = "mov %s, r%cx ; load %s\n";
+        char* val = calloc(strlen(template) + 24, sizeof(char));
+
+        sprintf(val, template, t->avail_reg, value[1], name);
+        t->buf = strcat(t->buf, val);
+
+        map_set(&m, name, strdup(t->avail_reg));
+        //t->stack_offset += sizeof(int);
+        //t->avail_reg++;
+        increase_reg(t);
+
+    } else if (strlen(value) >= 2 && value[0] == 'r' && isdigit(value[1]))  {
+        const char* template = "mov %s, r%c ; load %s\n";
         char* val = calloc(strlen(template) + 24, sizeof(char));
 
         sprintf(val, template, t->avail_reg, value[1], name);
@@ -739,6 +802,19 @@ void pop_active_regs(struct tools *t) {
 
     free(keys);
     free(value);
+}
+
+bool var_exists(const char* name, struct tools *t) {
+    const char *key;
+    map_iter_t iter = map_iter(&m);
+
+    while ((key = map_next(&m, &iter))) {
+        if (strcmp(key, name) == 0) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 

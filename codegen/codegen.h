@@ -12,6 +12,18 @@ struct tools {
     char* avail_reg;
 };
 
+enum t_value {
+    value_register,
+    value_string,
+    value_int64,
+    value_boolean
+};
+
+struct value {
+    enum t_value type;
+    char **value;
+};
+
 enum t_section {
     section_data,
     section_rodata
@@ -27,17 +39,19 @@ int visit_funcall(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 int visit_body(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 int visit_statement(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 
-char* visit_exp(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
-char* visit_term(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
-char* visit_factor(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
-char* visit_string(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
-char* visit_ident(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
+struct value visit_exp(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
+struct value visit_term(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
+struct value visit_factor(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
+struct value visit_string(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
+struct value visit_boolean(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
+struct value visit_ident(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 
 char* visit_number(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 
 
 int visit_return(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 int visit_assign(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
+int visit_reassign(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 
 int move_data(const char* name, const char *str, struct tools* t, bool string_mode, enum t_section section);
 
@@ -48,3 +62,5 @@ char* add_use_raw(char* content, mpc_ast_trav_t* trav, struct tools* t, const ch
 
 void push_active_regs(struct tools *t);
 void pop_active_regs(struct tools *t);
+
+bool var_exists(const char* name, struct tools *t);

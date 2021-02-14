@@ -11,7 +11,7 @@ int main(int argc, char* argv[]) {
     if (mpc_parse_contents(argv[1], lexer, &r)) {
       printf("Compiling `%s`...\n", argv[1]);
 
-      // mpc_ast_print(r.output);
+      mpc_ast_print(r.output);
       visitor_start(r.output, argv[1]);
       mpc_ast_delete(r.output);
     } else {
