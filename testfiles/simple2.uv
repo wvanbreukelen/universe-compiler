@@ -1,8 +1,10 @@
 main() -> int = {
-    var x: int = 10;
+    var x: int = 2342;
     var y: int = x;
 
-    print(y);
-
+    print("Value:\t");
+    print(x);
+    print("\n");
+    
     return y;
 }

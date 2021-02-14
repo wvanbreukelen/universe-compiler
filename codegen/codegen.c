@@ -83,6 +83,9 @@ void visitor_start(mpc_ast_t* tree, const char* filename) {
     t->rodata_end = strcat(t->rodata_end, "\nsection .rodata\n");
     t->data_end = calloc(10000, 1);
     t->data_end = strcat(t->data_end, "\nsection .data\n");
+
+    t->templates = calloc(10000, 1);
+
     t->stack_offset = 0;
     t->avail_reg = strdup("r8");
     const char* template = "output.asm";
@@ -127,6 +130,7 @@ void visitor_start(mpc_ast_t* tree, const char* filename) {
     //if (strlen(t->buf) > 0)
         fputs(t->buf, t->whandle);
     
+    fputs(t->templates, t->whandle);
     //if (strlen(t->rodata_end) > 0)
         fputs(t->rodata_end, t->whandle);
     
@@ -255,7 +259,7 @@ static void unfold_math_exp(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools*
 }
 
 
-char* visit_exp(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
+struct value visit_exp(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
     if (startsWith("lexp|term", node->tag)) {
         return visit_term(node, trav, t);
     }
@@ -266,23 +270,23 @@ char* visit_exp(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
 
         unfold_math_exp(node, trav, t);
 
-        return strdup("rax");
+        return (struct value) {value_register, strdup("rax") };
     }
     
-    return NULL;
+    return (struct value) { value_unknown, NULL };
 }
 
 
 
 
-char* visit_term(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
+struct value visit_term(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
     if (startsWith("lexp|term|factor", node->tag)) {
         return visit_factor(node, trav, t);
     }
 
-    return NULL;
+    return (struct value) { value_unknown, NULL };
 }
-char* visit_factor(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
+struct value visit_factor(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
     if (startsWith("lexp|term|factor|string", node->tag)) {
         return visit_string(node, trav, t);
     }
@@ -299,27 +303,34 @@ char* visit_factor(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
         return visit_ident(node, trav, t);
     }
 
-    return NULL;
+    return (struct value) { value_unknown, NULL };
 }
 
-char* visit_string(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
-    char* str = malloc(strlen(node->contents) - 1);
-    str = strcpy(str, node->contents);
+struct value visit_string(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
+    // char* str = malloc(strlen(node->contents) - 1);
+    // str = strcpy(str, node->contents);
 
-    str[strlen(str) - 1] = '\0';
+    // str[strlen(str) - 1] = '\0';
   
-    return ++str;
+    //return ++str;
+
+    char* dup = strdup(&node->contents[1]);
+    dup[strlen(dup)-1] = 0;
+
+    return (struct value) { value_string, dup };
 }
 
-char* visit_number(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
-    return strdup(node->contents);
+struct value visit_number(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
+    return (struct value) { value_int64, strdup(node->contents) };
 }
 
-char* visit_boolean(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
-    return (strcmp(node->contents, "true") == 0) ? strdup("1") : strdup("0");
+struct value visit_boolean(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
+    char* val = (strcmp(node->contents, "true") == 0) ? strdup("1") : strdup("0");
+
+    return (struct value) { value_boolean, val };
 }
 
-char* visit_ident(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
+struct value visit_ident(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
     char **val = map_get(&m, node->contents);
 
 
@@ -333,7 +344,7 @@ char* visit_ident(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
     printf("%s\n", *val);
     //return strdup(node->contents);
 
-    return strdup(*val);
+    return (struct value) { value_register, strdup(*val) };
 }
 
 
@@ -347,9 +358,9 @@ int visit_funcall(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
         
         // Unwrap arguments.
         for (int i = 2; i < node->children_num - 1; i++) {
-            char* arg = visit_exp(node->children[i], trav, t);
+            struct value arg = visit_exp(node->children[i], trav, t);
 
-            if (arg) {
+            if (arg.type == value_string && arg.value) {
                 t->buf = strcat(t->buf, "mov rax, 1\nmov rdi, 1\n");
 
                 char* random_string = malloc(16);
@@ -360,11 +371,49 @@ int visit_funcall(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
                 sprintf(value, template, random_string, data_length);
 
                 t->buf = strcat(t->buf, value);
-                free(arg);
+                printf("%s\n", arg.value);
+                free(arg.value);
                 free(random_string);
                 free(value);
+            } else if (arg.type == value_register) {
+                //t->buf = strcat(t->buf, "mov rax, 1\nmov rdi, 1\n");
+                t->buf = strcat(t->buf, "mov rdi, r9\ncall _decprint\n");
+
+
+                t->templates = strcat(t->templates, "\
+\n_decprint:\n\
+push    rbp\n\
+mov     rbp, rsp\n\
+sub     rsp, 16\n\
+mov     qword [rbp - 8], rdi\n\
+cmp     qword [rbp - 8], 9\n\
+jle     _decprint_finish\n\
+mov     rax, qword [rbp - 8]\n\
+cqo\n\
+mov     ecx, 10\n\
+idiv    rcx\n\
+mov     qword [rbp - 16], rax\n\
+imul    rax, qword [rbp - 16], 10\n\
+mov     rcx, qword [rbp - 8]\n\
+sub     rcx, rax\n\
+mov     qword [rbp - 8], rcx\n\
+mov     rdi, qword [rbp - 16]\n\
+call    _decprint\n\n\
+_decprint_finish:\n\
+mov     rax, qword [rbp - 8] \n\
+add     rax, 48 \n\
+mov     qword [rbp - 8], rax \n\
+mov rax, 1 \n\
+mov rdi, 1 \n\
+lea rsi, [rbp - 8] \n\
+mov rdx, 1 \n\
+syscall \n\
+add     rsp, 16\n\
+pop     rbp\n\
+ret\
+                ");
             } else {
-                perror("Error: failed to unwrap argument!\n");
+                fprintf(stderr, "Error: failed to unwrap argument of type `%s`!\n", type_to_string(arg.type));
                 exit(1);
             }
         }
@@ -383,8 +432,8 @@ int visit_return(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
     //printf("Return call!\n");
 
     if (node->children_num > 1) {
-        char* return_value = visit_exp(node->children[1], trav, t);
-        printf("Return value: %s\n", return_value);
+        struct value return_value = visit_exp(node->children[1], trav, t);
+        printf("Return value: %s\n", return_value.value);
 
         // char *load = add_use(node->children[1], trav, t, 'a');
 
@@ -407,7 +456,7 @@ int visit_return(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
         // t->buf = strcat(t->buf, value);
 
         free(load);
-        free(return_value);
+        free(return_value.value);
     }
 
     return 0;
@@ -423,13 +472,13 @@ int visit_assign(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
         //printf("Var name: %s\n", var_name);
 
         // Parse expression.
-        char* expr = visit_exp(node->children[5], trav, t);
+        struct value val = visit_exp(node->children[5], trav, t);
 
-        if (expr) {
-            printf("Value: %s\n", expr);
-            add_load(var_name, expr, trav, t);
+        if (val.value) {
+            printf("Value: %s\n", val.value);
+            add_load(var_name, val, trav, t);
 
-            free(expr);
+            free(val.value);
         }
 
 
@@ -448,29 +497,30 @@ int visit_reassign(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t) {
     }
 
     // Parse expression.
-    char* expr = visit_exp(node->children[2], trav, t);
+    struct value val = visit_exp(node->children[2], trav, t);
 
-    if (expr) {
+    if (val.value) {
         //printf("Value: %s\n", expr);
-        add_load(node->children[0]->contents, expr, trav, t);
+        add_load(node->children[0]->contents, val, trav, t);
 
-        free(expr);
+        free(val.value);
     }
 
     return 0;
 }
 
 
-int move_data(const char* name, const char *str, struct tools* t, bool string_mode, enum t_section section) {
-    const char* template = "%s: db %s\n";
+int move_data(const char* name, const struct value val, struct tools* t, bool string_mode, enum t_section section) {
+
+    const char* template = (val.type == value_string) ? "%s: db %s\n" : "%s: dq %s\n";
     char* value = calloc(strlen(template) + 128, sizeof(char));
 
     if (string_mode) {
-        char* temp = malloc(strlen(str) + 256);
+        char* temp = malloc(strlen(val.value) + 256);
 
         temp[0] = '\0';
 
-        const char *it = str;
+        const char *it = val.value;
         bool in_string = false;
         bool in_newline = false;
 
@@ -524,7 +574,7 @@ int move_data(const char* name, const char *str, struct tools* t, bool string_mo
         sprintf(value, template, name, temp);
         free(temp);
     } else {
-        sprintf(value, template, name, str);
+        sprintf(value, template, name, val.value);
     }
 
     switch (section) {
@@ -540,18 +590,18 @@ int move_data(const char* name, const char *str, struct tools* t, bool string_mo
     
     free(value);
     
-    return strlen(str) - 1;
+    return strlen(val.value) - 1;
 }
 
-char* add_load(char* name, const char* value, mpc_ast_trav_t* trav, struct tools* t) {
-    if (is_digit_str(value)) {
-        move_data(name, value, t, false, section_data);
+char* add_load(char* name, const struct value val, mpc_ast_trav_t* trav, struct tools* t) {
+    if (is_digit_str(val.value)) {
+        move_data(name, val, t, false, section_data);
 
         const char* template = "mov %s, [%s] ; load %s\n";
-        char* val = calloc(strlen(template) + 24, sizeof(char));
+        char* calloc_val = calloc(strlen(template) + 24, sizeof(char));
         //int *val_offset = *map_get(&m, value);
-        sprintf(val, template, t->avail_reg, name, name);
-        t->buf = strcat(t->buf, val);
+        sprintf(calloc_val, template, t->avail_reg, name, name);
+        t->buf = strcat(t->buf, calloc_val);
 
 
         map_set(&m, name, strdup(t->avail_reg));
@@ -559,24 +609,24 @@ char* add_load(char* name, const char* value, mpc_ast_trav_t* trav, struct tools
         increase_reg(t);
 
         //free(val);
-    } else if (strlen(value) >= 3 && value[0] == 'r' && value[2] == 'x') {
+    } else if (strlen(val.value) >= 3 && val.value[0] == 'r' && val.value[2] == 'x') {
         const char* template = "mov %s, r%cx ; load %s\n";
-        char* val = calloc(strlen(template) + 24, sizeof(char));
+        char* calloc_val = calloc(strlen(template) + 24, sizeof(char));
 
-        sprintf(val, template, t->avail_reg, value[1], name);
-        t->buf = strcat(t->buf, val);
+        sprintf(calloc_val, template, t->avail_reg, val.value[1], name);
+        t->buf = strcat(t->buf, calloc_val);
 
         map_set(&m, name, strdup(t->avail_reg));
         //t->stack_offset += sizeof(int);
         //t->avail_reg++;
         increase_reg(t);
 
-    } else if (strlen(value) >= 2 && value[0] == 'r' && isdigit(value[1]))  {
+    } else if (strlen(val.value) >= 2 && val.value[0] == 'r' && isdigit(val.value[1]))  {
         const char* template = "mov %s, r%c ; load %s\n";
-        char* val = calloc(strlen(template) + 24, sizeof(char));
+        char* calloc_val = calloc(strlen(template) + 24, sizeof(char));
 
-        sprintf(val, template, t->avail_reg, value[1], name);
-        t->buf = strcat(t->buf, val);
+        sprintf(calloc_val, template, t->avail_reg, val.value[1], name);
+        t->buf = strcat(t->buf, calloc_val);
 
         map_set(&m, name, strdup(t->avail_reg));
         //t->stack_offset += sizeof(int);
@@ -589,11 +639,11 @@ char* add_load(char* name, const char* value, mpc_ast_trav_t* trav, struct tools
         // Not a constant, add a move based on init value.
 
         const char* template = "mov %s, %s ; load %s\n";
-        char* val = calloc(strlen(template) + 24, sizeof(char));
-        char** reg = map_get(&m, value);
+        char* calloc_val = calloc(strlen(template) + 24, sizeof(char));
+        char** reg = map_get(&m, val.value);
 
-        sprintf(val, template, t->avail_reg, *reg, value);
-        t->buf = strcat(t->buf, val);
+        sprintf(calloc_val, template, t->avail_reg, *reg, val.value);
+        t->buf = strcat(t->buf, calloc_val);
        
 
 
@@ -607,15 +657,15 @@ char* add_load(char* name, const char* value, mpc_ast_trav_t* trav, struct tools
     }
 }
 
-char* add_store(char* name, const char* value, mpc_ast_trav_t* trav, struct tools* t) {
+char* add_store(char* name, const struct value val, mpc_ast_trav_t* trav, struct tools* t) {
 
 
     const char* template = "mov [%s], %s ; store %s\n";
-    char* val = calloc(strlen(template) + 24, sizeof(char));
-    char** reg = map_get(&m, value);
+    char* val_calloc = calloc(strlen(template) + 24, sizeof(char));
+    char** reg = map_get(&m, val.value);
 
-    sprintf(val, template, name, *reg, name);
-    t->buf = strcat(t->buf, val);
+    sprintf(val_calloc, template, name, *reg, name);
+    t->buf = strcat(t->buf, val_calloc);
 
     map_set(&m, name, strdup(t->avail_reg));
         //free(val);

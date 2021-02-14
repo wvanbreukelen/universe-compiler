@@ -10,18 +10,20 @@ struct tools {
     char* data_end, *rodata_end;
     size_t stack_offset;
     char* avail_reg;
+    char* templates;
 };
 
 enum t_value {
     value_register,
     value_string,
     value_int64,
-    value_boolean
+    value_boolean,
+    value_unknown
 };
 
 struct value {
     enum t_value type;
-    char **value;
+    char *value;
 };
 
 enum t_section {
@@ -46,17 +48,17 @@ struct value visit_string(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t
 struct value visit_boolean(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 struct value visit_ident(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 
-char* visit_number(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
+struct value visit_number(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 
 
 int visit_return(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 int visit_assign(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 int visit_reassign(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 
-int move_data(const char* name, const char *str, struct tools* t, bool string_mode, enum t_section section);
+int move_data(const char* name, const struct value val, struct tools* t, bool string_mode, enum t_section section);
 
-char* add_load(char* name, const char* value, mpc_ast_trav_t* trav, struct tools* t);
-char* add_store(char* name, const char* value, mpc_ast_trav_t* trav, struct tools* t);
+char* add_load(char* name, const struct value val, mpc_ast_trav_t* trav, struct tools* t);
+char* add_store(char* name, const struct value val, mpc_ast_trav_t* trav, struct tools* t);
 char* add_use(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t, const char* reg);
 char* add_use_raw(char* content, mpc_ast_trav_t* trav, struct tools* t, const char* reg);
 
@@ -64,3 +66,21 @@ void push_active_regs(struct tools *t);
 void pop_active_regs(struct tools *t);
 
 bool var_exists(const char* name, struct tools *t);
+
+static const char* type_to_string(enum t_value type) {
+    switch (type)
+    {
+    case value_register:
+        return "register";
+    case value_boolean:
+        return "boolean";
+    case value_int64:
+        return "int64";
+    case value_string:
+        return "string";
+    case value_unknown:
+        return "unknown";
+    default:
+        return "unknown";
+    }
+}
