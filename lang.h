@@ -4,6 +4,7 @@ mpc_parser_t* init_lexer(void) {
     mpc_parser_t* Ident     = mpc_new("ident");
     mpc_parser_t* Number    = mpc_new("number");
     mpc_parser_t* Character = mpc_new("character");
+    mpc_parser_t* Comment = mpc_new("comment");
     mpc_parser_t* Boolean = mpc_new("boolean");
     mpc_parser_t* Returntype = mpc_new("returntype");
     mpc_parser_t* String    = mpc_new("string");
@@ -34,6 +35,7 @@ mpc_parser_t* init_lexer(void) {
         " ident     : /[a-zA-Z_][a-zA-Z0-9_]*/ ;                           \n"
         " number    : /[0-9]+/ ;                                           \n"
         " character : /'.'/ ;                                              \n"
+        " comment   : /\"//\" (<ident> | <number> | <character>)*/;            \n"
         " boolean   : (\"true\" | \"false\") ;                              \n"
         " returntype : \"->\" ;                                              \n"
         " string    : /\"(\\\\.|[^\"])*\"/ ;                               \n"
@@ -75,7 +77,7 @@ mpc_parser_t* init_lexer(void) {
         " reassign  : <ident> '=' <lexp> ;             \n"
         " return    : \"return\" <lexp>? ;                             \n"
         " funcall   : <ident> '(' <lexp>?  (',' <lexp>)* ')' ;               \n"
-        " typeident : <type> <ident> ;                                    \n"
+        " typeident : \"var\" <ident> ':' <type> ;                                    \n"
         " decls     : (<typeident> ';')* ;                                 \n"
         " args      : <typeident>? (',' <typeident>)* ;                    \n"
         //" args      : \"var\"? <typeident>? (',' \"var\" <typeident>)* ;                    \n"
@@ -86,7 +88,7 @@ mpc_parser_t* init_lexer(void) {
         " func      : <ident> <funcdef> <decls> <procedure>*; "
         //" includes  : (\"#include\" <string>)* ;                           \n"
         " smallc    : /^/ <main>? <func>* <main>? /$/ ;     \n", // <main> 
-        Ident, Number, Boolean, Character, Returntype, String, Factor, Term, Lexp, Funcall, Stmt, IfStmt, Exp, Type, Typeident, Decls, Procedure,
+        Ident, Number, Boolean, Character, Comment, Returntype, String, Factor, Term, Lexp, Funcall, Stmt, IfStmt, Exp, Type, Typeident, Decls, Procedure,
          Args, Body, Smallc, Funcdef, Func, Main, ReturnCall, Assign, Reassign, Block, NULL);
          
     if (err != NULL) {

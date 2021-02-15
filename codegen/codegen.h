@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include "util/map.h"
 
+#define __maybe_unused  __attribute__((unused))
+
 struct tools {
     FILE *whandle;
     char* buf;
@@ -33,23 +35,23 @@ enum t_section {
     section_rodata
 };
 
-int walk_tree(void);
-
 void visitor_start(mpc_ast_t* tree, const char* filename);
 int visit(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 int visit_main(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
+int visit_main_params(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 int visit_funcdef(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 int visit_funcall(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 int visit_body(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 int visit_statement(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
+int visit_if_statement(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 
 struct value visit_exp(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
+struct value visit_logic_exp(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 struct value visit_term(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 struct value visit_factor(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 struct value visit_string(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 struct value visit_boolean(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 struct value visit_ident(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
-
 struct value visit_number(mpc_ast_t* node, mpc_ast_trav_t* trav, struct tools* t);
 
 
@@ -67,9 +69,17 @@ char* add_use_raw(char* content, mpc_ast_trav_t* trav, struct tools* t, const ch
 void push_active_regs(struct tools *t);
 void pop_active_regs(struct tools *t);
 
-bool var_exists(const char* name, struct tools *t);
+bool var_exists(const char* name);
 
-static const char* type_to_string(enum t_value type) {
+__maybe_unused static void cerror(const char* fmt, ...) {
+    va_list argp;
+    va_start(argp, fmt);
+    vfprintf(stderr, fmt, argp);
+    va_end(argp);
+    exit(1);
+}
+
+__maybe_unused static const char* type_to_string(enum t_value type) {
     switch (type)
     {
     case value_register:
@@ -85,6 +95,6 @@ static const char* type_to_string(enum t_value type) {
     case value_unknown:
         return "unknown";
     default:
-        return "unknown";
+        cerror("unknown, exit");
     }
 }

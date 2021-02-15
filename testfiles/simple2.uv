@@ -1,9 +1,11 @@
-main(var argc: int) -> int = {
-    var x: int = 1;
-    var y: int = x;
-    var z: str = "Hello World!";
+main() -> int = {
+    var x: int = 10;
 
-    printf(argc)
+    if (x != 10) {
+        return 5;
+    }
 
-    return y;
+    print("Hello World!\n\n");
+
+    return 0;
 }
